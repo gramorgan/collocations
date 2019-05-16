@@ -8,7 +8,7 @@ from collections import defaultdict
 from math import log
 
 nlp = spacy.load('en')
-nlp.max_length = 1200000
+nlp.max_length = 6000000
 
 DEP_TYPES = set([
     'nsubj',
@@ -17,22 +17,25 @@ DEP_TYPES = set([
     'advmod',
     'csubj',
     'ccomp',
+    'dobj',
 ])
 
 def main():
-    dep_counts = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: 0)))
+    dep_triples = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: 0)))
 
     doc = Doc(nlp.vocab).from_disk(sys.argv[1])
     for tok in doc:
         if tok.dep_ in DEP_TYPES:
-            dep_counts[tok.dep_][tok.text][tok.head.text] += 1
+            dep_triples[tok.dep_][tok.text.lower()][tok.head.text.lower()] += 1
 
-def calc_minfo(dep_counts, dep, mod, head):
-    total_num        = sum_for(dep_counts)
-    num_dep          = sum_for(dep_counts, dep=dep)
-    num_dep_head     = sum_for(dep_counts, dep=dep, head=head)
-    num_dep_mod      = sum_for(dep_counts, dep=dep,  mod=mod )
-    num_dep_mod_head = sum_for(dep_counts, dep=dep,  mod=mod , head=head)
+    print(calc_minfo(dep_triples, 'amod', 'terrible', 'purpose'))
+
+def calc_minfo(dep_triples, dep, mod, head):
+    total_num        = sum_for(dep_triples)
+    num_dep          = sum_for(dep_triples, dep=dep)
+    num_dep_head     = sum_for(dep_triples, dep=dep, head=head)
+    num_dep_mod      = sum_for(dep_triples, dep=dep,  mod=mod )
+    num_dep_mod_head = sum_for(dep_triples, dep=dep,  mod=mod , head=head)
 
     print(num_dep_mod_head)
 
@@ -46,12 +49,12 @@ def calc_minfo(dep_counts, dep, mod, head):
 
     return log(p_abc/(p_b * p_a_gb * p_c_gb), 2)
 
-def sum_for(dep_counts, **kwargs):
+def sum_for(dep_triples, **kwargs):
     dep  = kwargs.get('dep',  None)
     mod  = kwargs.get('mod',  None)
     head = kwargs.get('head', None)
 
-    deps  = [dep_counts[dep]]       if dep  else dep_counts.values()
+    deps  = [dep_triples[dep]]       if dep  else dep_triples.values()
     mods  = [d[mod]  for d in deps] if mod  else [m for d in deps for m in d.values()]
     heads = [m[head] for m in mods] if head else [h for m in mods for h in m.values()]
 
