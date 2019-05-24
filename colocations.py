@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# use mutual information to identify colocations in a text corpus
+
 import sys
 import argparse
 from textacy.corpus import Corpus
@@ -7,6 +9,7 @@ from textacy.cache import load_spacy_lang
 from collections import defaultdict
 from math import log
 
+# set of dependancy types that we're interested in
 DEP_TYPES = set([
     'nsubj',
     'amod',
@@ -34,7 +37,7 @@ parser.add_argument('-c', dest='const', type=float, default=0.95, help=htext)
 htext='the number of mutual information results to print'
 parser.add_argument('-n', dest='num', type=int, default=10, help=htext)
 
-htext=('if this argument is set, parse the input file into a dependancy tree and save it to a .corp file.'
+htext=('if this argument is set, parse the input file into a dependency tree and save it to a .corp file.'
        'if this argument is not set, assume the input is a preparsed .corp file'
       )
 parser.add_argument('-p', dest='parse_infile', action='store_true', help=htext)
@@ -53,19 +56,19 @@ def main():
     else:
         corp = Corpus.load('en', args.infile)
 
-    # dictionary mapping dependancy triples to their frequencies
+    # dictionary mapping dependency triples to their frequencies
     dep_triples = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: 0)))
 
     # for every token in the corpus
     for doc in corp.docs:
         for tok in doc:
             # if this token is part of a compond word
-            # and the word it's connected to has a dependancy we care about
+            # and the word it's connected to has a dependency we care about
             # add it to the dictionary
             if tok.dep_ == 'compound' and tok.head.dep_ in DEP_TYPES:
                 full_word = tok.lemma_.lower() + ' ' + tok.head.lemma_.lower()
                 dep_triples[tok.head.dep_][full_word][tok.head.head.lemma_.lower()] += 1
-            # if this token has a dependancy we care about and hasn't already been included
+            # if this token has a dependency we care about and hasn't already been included
             # by the previous condition
             if tok.dep_ in DEP_TYPES and not any(c.dep_ == 'compound' for c in tok.children):
                 dep_triples[tok.dep_][tok.lemma_.lower()][tok.head.lemma_.lower()] += 1
@@ -85,7 +88,7 @@ def main():
 
 
 # calculate mutual information for a set of triples with a fixed
-# dependancy and head
+# dependency and head
 def calc_minfo_for_set(dep_triples, dep, head, const):
     total_num        = sum_for(dep_triples)
     num_dep          = sum_for(dep_triples, dep=dep)
