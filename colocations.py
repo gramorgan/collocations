@@ -1,54 +1,93 @@
 #!/usr/bin/env python3
 
 import sys
+import argparse
 from textacy.corpus import Corpus
-from textacy.preprocess import normalize_whitespace
 from textacy.cache import load_spacy_lang
 from collections import defaultdict
 from math import log
 
 DEP_TYPES = set([
-#    'nsubj',
-#    'amod',
-#    'nounmod',
-#    'advmod',
-#    'csubj',
-#    'ccomp',
+    'nsubj',
+    'amod',
+    'nounmod',
+    'advmod',
+    'csubj',
+    'ccomp',
     'dobj',
 ])
 
+parser = argparse.ArgumentParser(description='Retrieve colocations from a text corpus')
+
+htext='the input file to be processed'
+parser.add_argument('infile', help=htext)
+
+htext='the head word to calculate mutual information for'
+parser.add_argument('head', help=htext)
+
+htext='the dependency to calculate mutual information for. defaults to direct object'
+parser.add_argument('--dep', '-d', dest='dep', default='dobj', help=htext)
+
+htext='the constant used to bias mutual information calculation. defaults to 0.95'
+parser.add_argument('-c', dest='const', type=float, default=0.95, help=htext)
+
+htext=('if this argument is set, parse the input file into a dependancy tree and save it to a .corp file.'
+       'if this argument is not set, assume the input is a preparsed .corp file'
+      )
+parser.add_argument('-p', dest='parse_infile', action='store_true', help=htext)
+
 def main():
+    args = parser.parse_args()
+
+    if args.parse_infile:
+        with open(args.infile, 'r') as f:
+            pipeline = load_spacy_lang('en', disable=('tagger', 'ner', 'textcat'))
+            corp = Corpus(pipeline)
+            corp.add(f)
+            corp.save(args.infile.rsplit('.', 1)[0] + '.corp')
+    else:
+        corp = Corpus.load('en', args.infile)
+
     dep_triples = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: 0)))
-
-    #with open(sys.argv[1]) as infile:
-    #    pipeline = load_spacy_lang('en', disable=('tagger', 'ner', 'textcat'))
-    #    corp = Corpus(pipeline)
-    #    corp.add(infile)
-    #    corp.save(sys.argv[1].rsplit('.', 1)[0] + '.corp')
-    #return
-
-    corp = Corpus.load('en', sys.argv[1])
 
     for doc in corp.docs:
         for tok in doc:
             if tok.dep_ in DEP_TYPES:
-                dep_triples[tok.dep_][tok.text.lower()][tok.head.text.lower()] += 1
+                dep_triples[tok.dep_][tok.lemma_.lower()][tok.head.lemma_.lower()] += 1
 
-    #calc_minfo(dep_triples, 'dobj', 'paul', 'have')
-    #return
+    print('mutual info for words with relationship {} to "{}" using constant {}:'.format(args.dep, args.head, args.const))
+    print()
+    print('{:>12} {:>15} {:>5}'.format('mutual info', 'word', 'freq'))
 
-    #for d in dep_triples:
-    #    for m in dep_triples[d]:
-    #        for h in dep_triples[d][m]:
-    #            print(m, d, h)
+    mods_with_minfo = calc_minfo_for_set(dep_triples, args.dep, args.head, args.const)   
+    for result in mods_with_minfo:
+        print('{0[0]:>12.5} {0[1]:>15} {0[2]:>5}'.format(result))
 
-    objects = [k for k,v in dep_triples['dobj'].items() if v['have']>0]
-    obj_with_minfo = []
-    for obj in objects:
-        obj_with_minfo.append((calc_minfo(dep_triples, 'dobj', obj, 'have'), obj))
 
-    for x in sorted(obj_with_minfo):
-        print(x)
+def calc_minfo_for_set(dep_triples, dep, head, const):
+    total_num        = sum_for(dep_triples)
+    num_dep          = sum_for(dep_triples, dep=dep)
+    num_dep_head     = sum_for(dep_triples, dep=dep, head=head)
+
+    if (total_num == 0 or num_dep == 0 or num_dep_head == 0):
+        print('not enough info to calculate mutual information')
+        return
+
+    mods = [k for k,v in dep_triples[dep].items() if v[head]>0]
+    mods_with_minfo = []
+    for mod in mods:
+        num_dep_mod      = sum_for(dep_triples, dep=dep,  mod=mod )
+        num_dep_mod_head = sum_for(dep_triples, dep=dep,  mod=mod , head=head)
+
+        p_abc  = (num_dep_mod_head - const) / total_num
+        p_b    = num_dep          / total_num
+        p_a_gb = num_dep_head     / num_dep
+        p_c_gb = num_dep_mod      / num_dep
+        
+        minfo = log(p_abc/(p_b * p_a_gb * p_c_gb), 2)
+        mods_with_minfo.append( (minfo, mod, num_dep_mod_head) )
+
+    return sorted(mods_with_minfo, reverse=True)
 
 def calc_minfo(dep_triples, dep, mod, head):
     total_num        = sum_for(dep_triples)
@@ -57,12 +96,10 @@ def calc_minfo(dep_triples, dep, mod, head):
     num_dep_mod      = sum_for(dep_triples, dep=dep,  mod=mod )
     num_dep_mod_head = sum_for(dep_triples, dep=dep,  mod=mod , head=head)
 
-    p_abc  = (num_dep_mod_head - 0) / total_num
+    p_abc  = (num_dep_mod_head - 0.95) / total_num
     p_b    = num_dep          / total_num
     p_a_gb = num_dep_head     / num_dep
     p_c_gb = num_dep_mod      / num_dep
-
-    print(p_abc, p_b, p_a_gb, p_c_gb)
 
     return log(p_abc/(p_b * p_a_gb * p_c_gb), 2)
 
