@@ -7,6 +7,7 @@ import argparse
 from textacy.corpus import Corpus
 from textacy.cache import load_spacy_lang
 from collections import defaultdict
+from itertools import chain
 from math import log
 
 # set of dependancy types that we're interested in
@@ -34,7 +35,7 @@ parser.add_argument('--dep', '-d', dest='dep', default='dobj', help=htext)
 htext='the constant used to bias mutual information calculation. defaults to 0.95'
 parser.add_argument('-c', dest='const', type=float, default=0.95, help=htext)
 
-htext='the number of mutual information results to print'
+htext='the number of mutual information results to print. defaults to 10'
 parser.add_argument('-n', dest='num', type=int, default=10, help=htext)
 
 htext=('if this argument is set, parse the input file into a dependency tree and save it to a .corp file.'
@@ -60,18 +61,20 @@ def main():
     dep_triples = defaultdict(lambda: defaultdict(lambda: defaultdict(lambda: 0)))
 
     # for every token in the corpus
-    for doc in corp.docs:
-        for tok in doc:
-            # if this token is part of a compond word
-            # and the word it's connected to has a dependency we care about
-            # add it to the dictionary
-            if tok.dep_ == 'compound' and tok.head.dep_ in DEP_TYPES:
-                full_word = tok.lemma_.lower() + ' ' + tok.head.lemma_.lower()
-                dep_triples[tok.head.dep_][full_word][tok.head.head.lemma_.lower()] += 1
-            # if this token has a dependency we care about and hasn't already been included
-            # by the previous condition
-            if tok.dep_ in DEP_TYPES and not any(c.dep_ == 'compound' for c in tok.children):
-                dep_triples[tok.dep_][tok.lemma_.lower()][tok.head.lemma_.lower()] += 1
+    for tok in chain.from_iterable(corp.docs):
+        # if this token and its head aren't alpha, skip them
+        if not (tok.is_alpha and tok.head.is_alpha):
+            continue
+        # if this token is part of a compound word
+        # and the word it's connected to has a dependency we care about
+        # add it to the dictionary
+        if tok.dep_ == 'compound' and tok.head.dep_ in DEP_TYPES:
+            full_word = tok.lemma_.lower() + ' ' + tok.head.lemma_.lower()
+            dep_triples[tok.head.dep_][full_word][tok.head.head.lemma_.lower()] += 1
+        # if this token has a dependency we care about and hasn't already been included
+        # by the previous condition
+        if tok.dep_ in DEP_TYPES and not any(c.dep_ == 'compound' for c in tok.children):
+            dep_triples[tok.dep_][tok.lemma_.lower()][tok.head.lemma_.lower()] += 1
 
     mods_with_minfo = calc_minfo_for_set(dep_triples, args.dep, args.head, args.const)   
     if not mods_with_minfo:
@@ -122,10 +125,11 @@ def sum_for(dep_triples, **kwargs):
     head = kwargs.get('head', None)
 
     deps  = [dep_triples[dep]]      if dep  else dep_triples.values()
-    mods  = [d[mod]  for d in deps] if mod  else [m for d in deps for m in d.values()]
-    heads = [m[head] for m in mods] if head else [h for m in mods for h in m.values()]
+    mods  = (d[mod]  for d in deps) if mod  else (m for d in deps for m in d.values())
+    heads = (m[head] for m in mods) if head else (h for m in mods for h in m.values())
 
     return sum(heads)
 
 if __name__ == '__main__':
     main()
+
